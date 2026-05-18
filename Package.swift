@@ -32,7 +32,17 @@ let package = Package(
         // Dependencies declare other packages that this package depends on.
 
         // LibP2P Core Modules
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.3.2")),
+        // jerimiah797/swift-libp2p (burrows-impl): tag 0.3.5 +
+        // defensive guards for post-shutdown property access.
+        // Repinned away from the upstream URL so downstream
+        // Burrows doesn't hit a SwiftPM "conflicting identity"
+        // warning between two repos that both claim the
+        // `swift-libp2p` package identity (see also the matching
+        // change in jerimiah797/swift-libp2p-kad-dht).
+        .package(
+            url: "https://github.com/jerimiah797/swift-libp2p.git",
+            revision: "02e64b133e1383e02ccb2d68acb04366747c16f8"
+        ),
 
         // NIO Test Utils
         .package(url: "https://github.com/apple/swift-nio.git", .upToNextMajor(from: "2.0.0")),
