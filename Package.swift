@@ -41,7 +41,7 @@ let package = Package(
         // change in jerimiah797/swift-libp2p-kad-dht).
         .package(
             url: "https://github.com/jerimiah797/swift-libp2p.git",
-            revision: "cebf51c9a49faccf068f924d390a9c01abcdad36"
+            revision: "ec452d1164a9a4b94118198c067aacf35a4a937b"
         ),
 
         // NIO Test Utils
