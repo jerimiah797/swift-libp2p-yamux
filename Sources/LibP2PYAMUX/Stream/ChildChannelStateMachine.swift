@@ -85,15 +85,19 @@ extension ChildChannelStateMachine {
                 channelID: ChannelIdentifier(channelID: localID)
             )
 
-        case .requestedLocally:
-            // We precondition here because the rest of the code should prevent this from happening: there's no way to deliver a
-            // channel open request for a channel we requested, because the message cannot carry our channel ID.
-            preconditionFailure("Somehow received an open request for a locally-initiated channel")
-
-        case .requestedRemotely, .active, .closedRemotely, .closedLocally, .closed:
-            // As above, we precondition here because the rest of the code should prevent this from happening: there's no way to deliver
-            // a channel open request for a channel that has a remote ID already!
-            preconditionFailure("Received an open request for an active channel")
+        case .requestedLocally, .requestedRemotely, .active, .closedRemotely,
+            .closedLocally, .closed:
+            // burrows #175: a remote peer (re)opened a channel we already track.
+            // Stock yamux assumes this is impossible, but the no-session-handshake
+            // control channel (79de4d4) makes *both* swift peers locally open
+            // channel 0 AND emit a ChannelOpen(0) on the wire — so each receives
+            // the other's redundant channel-0 open here, on a channel that's
+            // already requestedLocally/active. That's a peer's wire behavior, not a
+            // local invariant, so absorb it idempotently instead of trapping the
+            // whole process with `preconditionFailure`. (Rust never sends a
+            // channel-0 open, so swift↔rust never reaches this branch — the
+            // rust-interop fix is preserved.)
+            break
         }
     }
 

@@ -500,30 +500,23 @@ extension ChildChannelStateMachine {
     }
 
     fileprivate mutating func receivedSessionOpen(mode: LibP2P.Mode) throws -> Frame {
-        switch mode {
-        case .initiator:
-            // Receive the channel open message
-            self.receiveChannelOpen(.init(senderChannel: 0, initialWindowSize: 0, maximumPacketSize: 0))
-            // Send the channel open confirmation message
-            self.sendChannelOpenConfirmation(
-                .init(recipientChannel: 0, senderChannel: 0, initialWindowSize: 0, maximumPacketSize: 0)
-            )
-            // Return the ack frame
-            return .init(header: .init(version: .v0, messageType: .ping, flags: [.ack], streamID: 0, length: 0))
-        case .listener:
-            // 'receive' the channel open confirmation message
-            try self.receiveChannelOpenConfirmation(
-                .init(recipientChannel: 0, senderChannel: 0, initialWindowSize: 0, maximumPacketSize: 0)
-            )
-            // Return the ack frame
-            return .init(header: .init(version: .v0, messageType: .ping, flags: [.ack], streamID: 0, length: 0))
-        }
+        // burrows #175: channel 0 (the control channel) is already `.active` — it was
+        // spun up locally in `initialize` (79de4d4, the no-session-handshake model).
+        // A peer still on the OLD yamux sends the legacy length-0 ping+SYN/ACK
+        // "session open"; re-running the open/confirm state dance on the
+        // already-active control channel traps it as a duplicate
+        // (`receiveChannelOpen` / `sendChannelOpenConfirmation`). Don't touch the
+        // state machine — just return the ack the old peer expects. (Rust never
+        // sends a session-open, so this never fires swift↔rust; the rust-interop
+        // fix is preserved. This makes new↔old yamux interop too.)
+        _ = mode
+        return .init(header: .init(version: .v0, messageType: .ping, flags: [.ack], streamID: 0, length: 0))
     }
 
     fileprivate mutating func receivedSessionOpenConfirmation() throws {
-        try self.receiveChannelOpenConfirmation(
-            .init(recipientChannel: 0, senderChannel: 0, initialWindowSize: 0, maximumPacketSize: 0)
-        )
+        // burrows #175: channel 0 is already `.active` (see `initialize`). An
+        // old-yamux peer's session-open ACK would re-confirm it and trap as a
+        // duplicate — ignore it.
     }
 
     fileprivate mutating func shouldClose() throws -> Frame? {
