@@ -377,12 +377,47 @@ extension ChildChannel: Channel, ChannelCore {
             return
 
         case .output:
-            // Closing output turns into sending a frame.
-            // This message needs to be buffered with the outbound I/O. It also counts as a flush (because
-            // closing is normally not something that can be flushed).
-            promise?.fail(ChannelError.operationUnsupported)
-            //self.pendingWritesFromChannel.append((.eof, promise))
-            //self.flush0()
+            // Half-close our WRITE side: emit a yamux FIN (a `channelClose`
+            // frame) but keep the READ side open so we can still receive the
+            // response. This is canonical libp2p request/response *client*
+            // behaviour — rust-libp2p's `request_response` dialer calls
+            // `io.close()` after writing the request, then reads the reply on
+            // the still-open read half. swift-libp2p previously had no way to do
+            // this (only full close, `.all`), so a swift client never FIN'd and
+            // a canonical responder that reads-to-EOF (rust) blocked until its
+            // 10s inbound timeout — see the burrows directory-list interop work.
+            //
+            // The state machine moves `active -> closedLocally` on
+            // `sendChannelClose`. `closedLocally` is NOT `isClosed`, so the
+            // channel is NOT torn down, and `receiveChannelData` explicitly
+            // accepts data in `closedLocally` — inbound reads keep flowing until
+            // the remote FINs back (`closedLocally -> closed`). `isActiveOnChannel`
+            // stays true there, so `Channel.isActive` remains true for the read.
+            guard self.state.isActiveOnNetwork else {
+                // Not yet active on the network: there is no open stream to
+                // half-close. Treat like an unsupported op rather than inventing
+                // a frame the peer can't attribute to a stream.
+                promise?.fail(ChannelError.operationUnsupported)
+                return
+            }
+            guard !self.state.sentClose else {
+                // Already half-closed (or fully closing): the FIN is in flight.
+                promise?.succeed(())
+                return
+            }
+            guard let recipientChannel = self.state.remoteChannelIdentifier else {
+                // Stream not far enough along to address a close frame.
+                promise?.fail(ChannelError.operationUnsupported)
+                return
+            }
+            // Route through the normal outbound path: if request bytes are still
+            // pending, `processOutboundMessage` defers the FIN until they flush
+            // (`shouldCloseOnceFlushed`); otherwise it sends it now. Either way
+            // the promise completes once the FIN frame is written, and the
+            // channel stays alive for the response.
+            self.processOutboundMessage(
+                .channelClose(.init(recipientChannel: recipientChannel)), promise: promise)
+            self.writePendingToMultiplexer()
             return
 
         case .all:
