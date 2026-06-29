@@ -479,6 +479,22 @@ extension ChildChannelStateMachine {
         }
     }
 
+    /// Whether we've already RECEIVED a close (FIN) from the remote — i.e. its
+    /// write side is (or was) closed. True once we're `.closedRemotely` (remote
+    /// FIN'd, our write still open) or `.closed` (both done). Used to tolerate a
+    /// redundant inbound FIN: a canonical peer (rust-libp2p) can emit a second
+    /// close frame for the same stream — `write_response`'s `io.close()` FIN
+    /// followed by the substream drop — and the remote can't "un-close," so a
+    /// duplicate FIN is harmless noise, not a protocol violation.
+    var hasReceivedClose: Bool {
+        switch self.state {
+        case .closedRemotely, .closed:
+            return true
+        case .idle, .requestedLocally, .requestedRemotely, .active, .closedLocally:
+            return false
+        }
+    }
+
     /// The local identifier for this channel. We always know this identifier.
     var localChannelIdentifier: UInt32 {
         switch self.state {

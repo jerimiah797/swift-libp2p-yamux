@@ -861,6 +861,21 @@ extension ChildChannel {
     }
 
     private func handleInboundChannelClose(_ message: Message.ChannelCloseMessage) throws {
+        // Tolerate a redundant inbound FIN. A canonical libp2p peer (rust-libp2p)
+        // can send a second close frame for a stream we've already seen close on
+        // — e.g. a `request_response` responder's `write_response` calls
+        // `io.close()` (FIN #1), then the behaviour drops the still-open inbound
+        // half, emitting FIN #2. Without this guard the second close lands in
+        // `.closedRemotely`/`.closed` and `receiveChannelClose` throws
+        // `protocolViolation("Received close on closed channel")`, which fires
+        // `errorEncountered` and tears the stream down — failing an in-flight
+        // request whose RESPONSE bytes already arrived (caught live in the
+        // swift↔rust genesis-fetch interop probe). The remote cannot "un-close,"
+        // so a duplicate FIN is harmless noise: ignore it.
+        guard !self.state.hasReceivedClose else {
+            self.logger.trace("Ignoring redundant inbound close on already-remote-closed channel")
+            return
+        }
         try self.state.receiveChannelClose(message)
 
         // If we didn't throw, this must be acceptable to process.
